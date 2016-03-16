@@ -7,7 +7,7 @@ var {
   View,
   Text,
   ScrollView,
-} = React;
+  } = React;
 
 var TimerMixin = require('react-timer-mixin');
 
@@ -15,6 +15,8 @@ var { width, height } = Dimensions.get('window');
 
 var Carousel = React.createClass({
   mixins: [TimerMixin],
+
+  willUnmountSoon:false,
 
   getDefaultProps() {
     return {
@@ -36,12 +38,16 @@ var Carousel = React.createClass({
   getInitialState() {
     return {
       activePage: 0,
+      width:width,
     };
   },
 
   componentDidMount() {
+
+    this.willUnmountSoon = false;
+
     if (this.props.initialPage > 0) {
-      var width = this.props.initialPage * this.props.width;
+      var width = this.props.initialPage * this.state.width;
       this.setState({
         activePage: this.props.initialPage
       });
@@ -49,13 +55,67 @@ var Carousel = React.createClass({
     }
 
     if (this.props.animate && this.props.children){
-        this._setUpTimer();
+      this._setUpTimer();
+    }
+  },
+
+  componentWillUnmount() {
+    this.willUnmountSoon = true;
+
+  },
+
+  resizeCarousel({ width, height }){
+    if ( ! this.willUnmountSoon ) {
+      this.setState({width});
     }
   },
 
   indicatorPressed(activePage){
     this.setState({activePage});
-    this.refs.scrollView.scrollTo(0, activePage * width);
+    this.refs.scrollView.scrollTo(0, activePage * this.state.width);
+  },
+
+  _setUpTimer() {
+    if (this.props.children.length > 1) {
+      this.clearTimeout(this.timer);
+      this.timer = this.setTimeout(this._animateNextPage, this.props.delay);
+    }
+  },
+
+  _animateNextPage() {
+    var activePage = 0;
+    if (this.state.activePage < this.props.children.length - 1) {
+      activePage = this.state.activePage + 1;
+    } else if (!this.props.loop) {
+      return;
+    }
+
+    this.indicatorPressed(activePage);
+    this._setUpTimer();
+  },
+
+  _onAnimationBegin(e) {
+    this.clearTimeout(this.timer);
+  },
+
+  _onAnimationEnd(e) {
+    var activePage = e.nativeEvent.contentOffset.x / this.state.width;
+
+    this.setState({activePage});
+
+    if (this.props.onPageChange) {
+      this.props.onPageChange(activePage);
+    }
+    this._setUpTimer();
+  },
+
+  renderChildren() {
+    var children = [];
+    for (var i = 0, l = this.props.children.length; i < l; i++) {
+      children.push(<View key={i} style={[styles.page, { width:this.state.width }]} >{this.props.children[i]}</View>);
+    }
+
+    return  children;
   },
 
   renderPageIndicator() {
@@ -64,16 +124,14 @@ var Carousel = React.createClass({
     }
 
     var indicators = [],
-        indicatorStyle = this.props.indicatorAtBottom ? { bottom: this.props.indicatorOffset } : { top: this.props.indicatorOffset },
-        style, position;
+      indicatorStyle = this.props.indicatorAtBottom ? { bottom: this.props.indicatorOffset } : { top: this.props.indicatorOffset },
+      style, position, cLength = this.props.children.length;
 
-    position = {
-      width: this.props.children.length * this.props.indicatorSpace,
-    };
-    position.left = (this.props.width - position.width) / 2;
-
-    for (var i = 0, l = this.props.children.length; i < l; i++) {
+    position = { width: (cLength * this.props.indicatorSpace) + (cLength * this.props.indicatorSize)};
+    position.left = (this.state.width - position.width) / 2;
+    for (var i = 0; i < cLength; i++) {
       style = i === this.state.activePage ? { color: this.props.indicatorColor } : { color: this.props.inactiveIndicatorColor };
+      style.marginRight = style.marginLeft = this.props.indicatorSpace ? this.props.indicatorSpace/2 : 0;
       indicators.push(<Text style={[style, { fontSize: this.props.indicatorSize }]} key={i} onPress={this.indicatorPressed.bind(this,i)}>&bull;</Text>);
     }
 
@@ -84,45 +142,14 @@ var Carousel = React.createClass({
     );
   },
 
-  _setUpTimer() {
-     if (this.props.children.length > 1) {
-         this.clearTimeout(this.timer);
-         this.timer = this.setTimeout(this._animateNextPage, this.props.delay);
-     }
-  },
-
-  _animateNextPage() {
-     var activePage = 0;
-     if (this.state.activePage < this.props.children.length - 1) {
-         activePage = this.state.activePage + 1;
-     } else if (!this.props.loop) {
-         return;
-     }
-
-     this.indicatorPressed(activePage);
-     this._setUpTimer();
-  },
-
-  _onAnimationBegin(e) {
-     this.clearTimeout(this.timer);
-  },
-
-  _onAnimationEnd(e) {
-    var activePage = e.nativeEvent.contentOffset.x / this.props.width;
-
-    this.setState({activePage});
-
-    if (this.props.onPageChange) {
-      this.props.onPageChange(activePage);
-    }
-
-  },
-
   render() {
 
+
     return (
-      <View style={{ flex: 1 }}>
-        <ScrollView ref="scrollView"
+      <View style={{flex:1}} onLayout={(event) => { this.resizeCarousel(event.nativeEvent.layout) }} >
+        <ScrollView
+          ref="scrollView"
+          style={{flex:1}}
           contentContainerStyle={styles.container}
           automaticallyAdjustContentInsets={false}
           horizontal={true}
@@ -133,32 +160,29 @@ var Carousel = React.createClass({
           onMomentumScrollEnd={this._onAnimationEnd}
           scrollsToTop={false}
         >
-          {this.props.children}
+          {this.renderChildren()}
         </ScrollView>
         {this.renderPageIndicator()}
       </View>
     );
-  },
+  }
 
 });
-
 var styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
   },
-  page: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
+  page:{
+    flex:1,
+    backgroundColor:'transparent'
   },
   pageIndicator: {
-    position: 'absolute',
+    position:'absolute',
     flexDirection: 'row',
-    flex: 1,
-    justifyContent: 'space-around',
     alignItems: 'center',
     alignSelf: 'center',
+    justifyContent:'center',
     backgroundColor:'transparent',
   },
 });
